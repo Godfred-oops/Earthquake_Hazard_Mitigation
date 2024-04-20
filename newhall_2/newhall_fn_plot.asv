@@ -1,0 +1,86 @@
+close all; clear all;
+orient tall
+data_fn=load('newhall_360.dat');
+g=9.81;    % gravity
+
+dt=0.02;    % time increment
+t_end=30;  %end time (sec) for plotting
+[m,n]=size(data_fn);
+k=1;
+for i=1:m
+for j=1:n
+   Ag(k)=data_fn(i,j)/100;   %change units from cm/s^2 to m/s^2
+   Time(k)=dt*(k-1);
+   k=k+1;
+end
+end
+
+N=t_end/dt+1;
+plot(Time(1:N),Ag(1:N))   
+xlabel('Time (sec)')
+ylabel('Acceleration (m/sec^2)')
+title('1994 Northridge Newhall Record (Fault Normal Direction)')
+
+%% assignment 2
+m = 450e3;
+mb = 200e3;
+ts = 0.5; 
+tb = 2;
+zeta_s = 0.02;
+zeta_b = 0.1;
+wb = 2*pi/tb;
+ws = 2*pi/ts; 
+
+
+M = [m+mb, m;m,m];
+C = [2*zeta_b*(m+mb)*wb, 0; 0, 2*ws*zeta_s*m];
+K = [(wb^2)*(m+mb), 0; 0, (ws^2)*m];
+
+[V,D] = eig(K,M);
+
+V(:,1) = V(:,1)/V(1,1);
+V(:,2) = V(:,2)/V(1,2);
+r = [1;0];
+
+for i = 1:size(V,2)
+    m_new(i,1) = V(:,i)'*M*V(:,i);
+    k_new(i,1) = V(:,i)'*K*V(:,i);
+    c_new(i,1) = V(:,i)'*C*V(:,i);
+    L(i,1) = (V(:,i)'*M*r)/(V(:,i)'*M*V(:,i));
+end
+
+
+%frequency domain computation 
+%q1(t)
+[a1, v1, u1] = response_frequency_domain(m_new(1,1), c_new(1,1), k_new(1,1), L(1,1)*Ag, dt);
+
+%q2(t)
+[a2, v2, u2] = response_frequency_domain(m_new(2,1), c_new(2,1), k_new(2,1), L(2,1)*Ag, dt);
+
+%fixed 
+[a3, v3, u3] = response_frequency_domain(m, 2*ws*zeta_s*m, (ws^2)*m, Ag, dt);
+
+Q = [u1; u2]; 
+
+%fixed and isolation values
+U = V(:,1).*u1 + V(:,2).*u2;
+
+%isolated
+ub_max = max(abs(U(1,:)));
+us_max = max(abs(U(2,:)));
+
+%fixed
+us_fixed = max(abs(u3));
+
+disp(ub_max)
+disp(us_max)
+disp(us_fixed)
+
+U(3,:) = u3; 
+
+for j =1:size(U,1)
+    ud = U(j,:);
+    plot(Time(1:N), ud(1:N))
+    hold on 
+end
+legend('Ub', 'Us_{isolated}')
