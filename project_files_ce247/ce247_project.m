@@ -167,7 +167,7 @@ for i = 1:length(data_size)
     modal_final_u{i} = extract_u(:,1:data_size(i));
 end
 
-%floor acceleration
+%floor acceleration (modal analysis)
 floor_acc = cell(7,1);
 for i = 1:length(data_size)
     u_modal = modal_final_u{i};
@@ -180,9 +180,7 @@ for i = 1:length(data_size)
     clear u2_dot_modal
 end
 
-for i = 1:length(data_size)
 
-end
 %extraction of values from the damping matrix
 
 c1 = C(1,1); 
@@ -206,7 +204,7 @@ for i = 1:size(ug2dot, 2)
 
     time_cell = time_cell(2:end);
     newElement = time_cell(end) + time_steps{i};
-    time_cell = [time_cell, newElement];
+    time_cell =[time_cell, newElement];
 
     time{i} = time_cell; 
 
@@ -233,8 +231,20 @@ for i = 1:length(data_size)
     ode_acc_res{i} = [u2_s0, u2_s1, u2_s2];
 
 end
+
+%maximum floor acceleration (modal analysis) & ODE
+max_modal_acc = cell(7,1); 
+max_ode_acc = cell(7,1); 
+for i = 1:length(data_size)
+    max_modal_acc{i} = max(abs(floor_acc{i}));
+    max_ode_acc{i} = max(abs(ode_acc_res{i}));
+end
+
+
+plot_title = {'sylmar', 'elcen05', 'elcen07', 'lucerne', 'newhall', 'pacoima', 'rinaldi'};
 ode_reference = [1,3,5];
 %overlaying the ode and modal analysis values
+y_label = {'Base story', 'first story', 'second story'}; 
 for j = 1:7
     figure
     for i = 1:length(ode_reference)
@@ -242,8 +252,19 @@ for j = 1:7
         plot(time{1,j}, modal_final_u{j,1}(i,:))
         hold on
         plot(time{1,j}, u_ode_cell{j,1}(:,ode_reference(i)))
+        xlabel('Time(sec)')
+        ylabel(y_label{i})
         legend('modal analysis', 'ode')
     end
+    sgtitle(['Relative displacement ODE & Modal Analysis - ', plot_title{j}]);
+end
+
+%maximum displacement ODE & MODAL ANALYSIS
+max_modal_disp = cell(7,1); 
+max_ode_disp = cell(7,1); 
+for i = 1:length(data_size)
+    max_modal_disp{i} = max(abs(u_ode_cell{i,1}(:,[1,3,5])));
+    max_ode_disp{i} = max(abs(modal_final_u{i,1}'));
 end
 
 %legend('modal analysis', 'ode')
@@ -254,7 +275,10 @@ ode_base_acc = cell(7,1);
 modal_base_acc = cell(7,1);
 for i = 1:length(data_size)
     ode_base_acc{i} = ode_acc_res{i,1}(:,1) + ug2dot{1,i}';
+    max_base_ode_acc{i} = max(abs(ode_base_acc{i}));
     modal_base_acc{i} = floor_acc{i,1}(:,1) + ug2dot{1,i}';
+    max_modal_base_acc{i} = max(abs(modal_base_acc{i}));
+
 end
 
 W = m1 + m2 + mb; 
@@ -264,3 +288,4 @@ for i = 1:length(data_size)
     ode_base_shear(i) = max(abs(ode_base_acc{i,1} * W));
     modal_base_shear(i) = max(abs(modal_base_acc{i,1} * W));
 end
+
