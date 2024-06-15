@@ -1,3 +1,5 @@
+%CAUTION!!! it takes averagely an hour to run when you're using an intel
+%processor. 
 close all; clear all;
 %orient tall
 data1=load('sylmar_fn.dat');
@@ -289,3 +291,191 @@ for i = 1:length(data_size)
     modal_base_shear(i) = max(abs(modal_base_acc{i,1} * W));
 end
 
+%% non-linear model
+K1 = [k1, -k1, 0; -k1, k1+k2, -k2; 0, -k2, k2]; 
+
+C1 = (a0 * M) + (a1 * K1); 
+
+%extraction of values from the damping matrix
+
+c5 = C1(1,1); 
+c6 = -C1(1,2); 
+c7 = C1(3,3); 
+c8 = C1(2,2); 
+
+ke = 10*0.92 * 10^6; 
+kp = ke/10; 
+Dy = 0.01085;
+gamma = 0.5; 
+beta = 0.5; 
+alpha = kp/ke;
+Q = Dy * (ke - kp);
+
+nb = 9; %number of bearing
+n = 2;
+
+nonlinear_ode_t = cell(7,1); 
+nonlinear_ode_output = cell(7,1);
+%linear analysis ODE
+for i = 1:size(ug2dot,2)
+    odefunc1 = @(t,y) ODEMOTION1(t,y, m1, m2, mb, alpha, gamma, beta, Dy, ug2dot{i}, k1, k2, ke, nb, c5, c6, c7, c8, n, time{i});
+    [nonlinear_t, nonlinear_output] = ode23(odefunc1, [time_steps{i}, time_steps{i} * (data_size(i)-1) ], [0,0,0,0,0,0,0]);
+    nonlinear_ode_t{i} = nonlinear_t; 
+    nonlinear_ode_output{i} = nonlinear_output; 
+end
+
+%saving responses in a cell
+u_nonlinear_ode_cell = cell(7,1); 
+for i = 1:size(ug2dot,2)
+    time_loop = data_size(i);
+    for j = 1:size(nonlinear_output,2)
+        for k = 1:time_loop
+            u_nonlinear_ode(k,j) = interp1(nonlinear_ode_t{i,1},nonlinear_ode_output{i,1}(:,j),time{1,i}(k));
+        end
+    end
+    u_nonlinear_ode_cell{i} = u_nonlinear_ode; 
+    clear u_nonlinear_ode
+end
+
+
+%acceleration response
+nonlinear_ode_acc = cell(7,1);
+for i = 1:length(data_size)
+    %isolator acceleration
+    nonlinear_u2_sb = -ug2dot{i}' - (1/mb)*(k1)*u_nonlinear_ode_cell{i,1}(:,1) - (c5/mb)*u_nonlinear_ode_cell{i,1}(:,2) + (k1/mb)*u_nonlinear_ode_cell{i,1}(:,3) + (c6/mb)*u_nonlinear_ode_cell{i,1}(:,4)- nb*((alpha*ke/mb) * u_nonlinear_ode_cell{i,1}(:,1) + (1-alpha)*(ke/mb)*Dy * u_nonlinear_ode_cell{i,1}(:,7));
+    
+    %first story acceleration
+    nonlinear_u2_s1 = -ug2dot{i}' - (1/m1)*(k2 + k1)*u_nonlinear_ode_cell{i,1}(:,3) + (k2/m1)*u_nonlinear_ode_cell{i,1}(:,5) + (c6/m1)*u_nonlinear_ode_cell{i,1}(:,2) + (k1/m1)*u_nonlinear_ode_cell{i,1}(:,1)-(c8/m1)*u_nonlinear_ode_cell{i,1}(:,4)+(c6/m1)*u_nonlinear_ode_cell{i,1}(:,6);
+    
+    %second story acceleration
+    nonlinear_u2_s2 = -ug2dot{i}' - (1/m2)*(k2)*u_nonlinear_ode_cell{i,1}(:,5) + (k2/m2)*u_nonlinear_ode_cell{i,1}(:,3) + (c6/m2)*u_nonlinear_ode_cell{i,1}(:,4) - (c7/m2)*u_nonlinear_ode_cell{i,1}(:,6);
+    nonlinear_ode_acc{i} = [nonlinear_u2_sb, nonlinear_u2_s1, nonlinear_u2_s2] + ug2dot{1,i}';
+
+end
+
+
+%maximum floor acceleration ODE 
+max_nonlinear_ode_acc = cell(7,1); 
+for i = 1:length(data_size)
+    max_nonlinear_ode_acc{i} = max(abs(nonlinear_ode_acc{i}));
+end
+
+nonlinear_disp = u_nonlinear_ode_cell;
+for i = 1:length(data_size)
+    nonlinear_disp{i,1}(:,3) = nonlinear_disp{i,1}(:,3) - nonlinear_disp{i,1}(:,1); 
+    %u_nonlinear_ode_cell is used because the nonlinear_disp changes after
+    %the update of the cell
+    nonlinear_disp{i,1}(:,5) = nonlinear_disp{i,1}(:,5) - u_nonlinear_ode_cell{i,1}(:,3); 
+end
+%maximum displacement ODE 
+max_nonlinear_ode_disp = cell(7,1); 
+for i = 1:length(data_size)
+    max_nonlinear_ode_disp{i} = max(abs(nonlinear_disp{i,1}(:,[1,3,5])));
+end
+
+%force-displacement loop 
+P2 = cell(7,1);
+for i = 1:length(data_size)
+    P2{i} = alpha*ke*nonlinear_ode_output{i,1}(:,1) + (1-alpha)*ke*Dy*nonlinear_ode_output{i,1}(:,7);
+end
+
+%Vb (base isolator) and Vs (superstructure) (shear values)
+for i = 1:length(data_size)
+    %the mass of each story is the same that's why I used m1 in calculating
+    %the superstructure and base isolator shear value. 
+    vb(i) = nb*max(abs(P2{i}));
+    vs(i) = sum(m1 * max_nonlinear_ode_acc{i,1}(:,2:3));
+end
+
+
+%force to optimise
+for i = 1:length(data_size)
+    F(i) = nb*Q + 2*kp*nb*max_nonlinear_ode_disp{i}(1) + m2*max_nonlinear_ode_acc{i}(3);
+end
+
+
+plot_title = {'sylmar', 'elcen05', 'elcen07', 'lucerne', 'newhall', 'pacoima', 'rinaldi'};
+ode_reference = [1,3,5];
+y_label = {'Base story', 'first story', 'second story'}; 
+
+for j = 1:7
+    figure
+    for k = 1:4
+        subplot(4,1,k)
+        if k ~= 4
+             plot(time{j}, nonlinear_disp{j,1}(:,ode_reference(k)))
+             xlabel('Time(sec)')
+             ylabel(y_label{k})
+        else
+            plot(nonlinear_ode_output{j,1}(:,1), P2{j})
+            xlabel('Displacement (m)')
+            ylabel('Force (N)')
+        end
+    end
+        sgtitle(['Interstory drift and force-displacement loop - ', plot_title{j}]);
+end
+    
+%plot(nonlinear_ode_output{5,1}(:,1), P2{5})
+
+%% part 5
+tb = linspace(1.5, 4,6); 
+
+W = (m1+m2+mb)*g; %weight of the structure
+
+q_w = 0.03:0.01:0.2; 
+
+optimised_force = cell(7,1);
+for i = 1:length(tb)
+    for j = 1:length(q_w)
+        for k = 1:length(data_size)
+            time_loop2 = data_size(k);
+            Kp = (W/g) * (4 * pi^2 /tb(i)^2); 
+            d_y = (q_w(j)*W)/(9*Kp); %1/alpha - 1
+            odefunc2 = @(t,y) ODEMOTION1(t,y, m1, m2, mb, alpha, gamma, beta, d_y, ug2dot{k}, k1, k2, ke, nb, c5, c6, c7, c8, n, time{k});
+            [optimised_nonlinear_t, optimised_nonlinear_output] = ode23(odefunc2, [time_steps{k}, time_steps{k} * (data_size(k)-1) ], [0,0,0,0,0,0,0]);
+
+            %displacement
+            for n = 1:size(optimised_nonlinear_output,2)
+                for m = 1:time_loop2
+                    optimised_u_nonlinear_ode(m,n) = interp1(optimised_nonlinear_t,optimised_nonlinear_output(:,n),time{1,k}(m));
+                end
+            end
+
+            %second story acceleration
+            optimised_nonlinear_u2_s2 = -ug2dot{k}' - (1/m2)*(k2)*optimised_u_nonlinear_ode(:,5) + (k2/m2)*optimised_u_nonlinear_ode(:,3) + (c6/m2)*optimised_u_nonlinear_ode(:,4) - (c7/m2)*optimised_u_nonlinear_ode(:,6);
+            optimised_nonlinear_ode_acc = optimised_nonlinear_u2_s2 + ug2dot{1,k}';
+
+            f_u(k,j) = (q_w(j) * W) + (2 * Kp * max(abs(optimised_u_nonlinear_ode(:,1)))) + (m2 * max(abs(optimised_nonlinear_ode_acc)));
+            clear optimised_u_nonlinear_ode 
+        end
+       
+    end
+    optimised_force{i} = f_u;
+end
+
+
+for i = 1:length(tb)
+    mean_force(:,i) = mean(optimised_force{i});
+end
+
+figure
+for i = 1:length(tb)
+    force = mean_force(:,i);
+    plot(q_w, force)
+    hold on 
+    [minValue, minIndex] = min(force);
+    minX = q_w(minIndex);
+    minY = force(minIndex);
+
+    q_w_tb(i) = minX; 
+    force_tb(i) = minY; 
+
+    plot(minX, minY, 'o', 'MarkerSize', 6);
+
+    %plt.text(minX, minY, f'Min: ({minX:.2f}, {minY:.2f})')
+
+end
+xlabel('Q/W')
+ylabel('Optimised force')
+title('Optimised force versus Normalised Q')
+legend('Tb = 1.5','Tb = 2','Tb = 2.5','Tb = 3','Tb = 3.5','Tb = 4')
